@@ -119,13 +119,23 @@ fn uia_array_len(array: &windows::Win32::UI::Accessibility::IUIAutomationElement
 fn uia_array_get(
     array: &windows::Win32::UI::Accessibility::IUIAutomationElementArray,
     index: u32,
-) -> Result<windows::Win32::UI::Accessibility::IUIAutomationElement, windows::core::Error> {
+) -> Result<windows::Win32::UI::Accessibility::IUIAutomationElement, io::Error> {
+    let len = unsafe { array.Length() }.unwrap_or(0);
+    if index as i32 >= len {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("Index {} out of bounds (len = {})", index, len),
+        ));
+    }
+
     unsafe { array.GetElement(index as i32) }
+        .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("Failed to get element {}: {}", index, e)))
 }
 
 // 安全封装：获取元素当前名称
-fn uia_element_current_name(element: &windows::Win32::UI::Accessibility::IUIAutomationElement) -> Result<BSTR, windows::core::Error> {
+fn uia_element_current_name(element: &windows::Win32::UI::Accessibility::IUIAutomationElement) -> Result<BSTR, io::Error> {
     unsafe { element.CurrentName() }
+        .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("Failed to get CurrentName: {}", e)))
 }
 
 fn variant_i4(i: i32) -> VARIANT {
@@ -136,6 +146,23 @@ fn variant_i4(i: i32) -> VARIANT {
         std::ptr::write(&mut p_var.Anonymous.lVal as *mut _, i);
     }
     v
+}
+
+// 安全封装：发送虚拟输入，集中 SendInput 的 unsafe
+fn send_virtual_inputs(inputs: &[INPUT]) -> Result<(), io::Error> {
+    if inputs.is_empty() {
+        return Ok(());
+    }
+
+    let sent: u32 = unsafe { SendInput(inputs, std::mem::size_of::<INPUT>() as i32) };
+    if sent != inputs.len() as u32 {
+        return Err(io::Error::new(
+            io::ErrorKind::Other,
+            format!("Failed to send all inputs: sent {}/{}", sent, inputs.len()),
+        ));
+    }
+
+    Ok(())
 }
 
 /// 获取当前输入法的 locale ID（传统模式）
@@ -345,17 +372,6 @@ pub fn switch_input_method_mspy(
     // 发送切换按键，并按配置进行验证和可选的重发
     let inputs = create_key_inputs(switch_keys)?;
 
-    let send_inputs = |inputs: &Vec<INPUT>| -> Result<(), io::Error> {
-        let sent: u32 = unsafe { SendInput(inputs, std::mem::size_of::<INPUT>() as i32) };
-        if sent != inputs.len() as u32 {
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                format!("Failed to send all inputs: sent {}/{}", sent, inputs.len()),
-            ));
-        }
-        Ok(())
-    };
-
     let verify = |target: &str| -> bool {
         // 初次短等待，避免立即读取旧状态
         std::thread::sleep(std::time::Duration::from_millis(100));
@@ -371,7 +387,7 @@ pub fn switch_input_method_mspy(
     };
 
     // 首次发送并验证
-    send_inputs(&inputs)?;
+    send_virtual_inputs(&inputs)?;
     if verify(target_mode) {
         return Ok(());
     }
@@ -379,7 +395,7 @@ pub fn switch_input_method_mspy(
     // 可选重发策略
     for _ in 0..resend_retries {
         std::thread::sleep(std::time::Duration::from_millis(resend_wait_ms));
-        send_inputs(&inputs)?;
+        send_virtual_inputs(&inputs)?;
         if verify(target_mode) {
             return Ok(());
         }
