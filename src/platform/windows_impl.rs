@@ -65,78 +65,111 @@ fn variant_bstr(s: &str) -> VARIANT {
     v
 }
 
-// 安全封装：构造包含 I4 的 VARIANT
-// 安全封装：创建 UIAutomation 实例
-fn uia_create() -> Result<IUIAutomation, io::Error> {
-    unsafe { CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER) }
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("Failed to create UIAutomation: {}", e)))
+// UIA 扩展：为 IUIAutomation 与 IUIAutomationElement 提供 Result 化的方法风格封装
+trait UIAutomationResultExt {
+    fn get_root_ok(&self) -> Result<windows::Win32::UI::Accessibility::IUIAutomationElement, io::Error>;
+    fn create_property_condition_ex_ok(
+        &self,
+        prop_id: UIA_PROPERTY_ID,
+        value: VARIANT,
+        flags: PropertyConditionFlags,
+    ) -> Result<windows::Win32::UI::Accessibility::IUIAutomationCondition, io::Error>;
 }
 
-// 安全封装：创建属性条件（Ex）
-fn uia_create_property_condition_ex(
-    automation: &IUIAutomation,
-    prop_id: UIA_PROPERTY_ID,
-    value: VARIANT,
-    flags: PropertyConditionFlags,
-) -> Result<windows::Win32::UI::Accessibility::IUIAutomationCondition, io::Error> {
-    unsafe { automation.CreatePropertyConditionEx(prop_id, value, flags) }
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("Failed to create property condition: {}", e)))
+impl UIAutomationResultExt for IUIAutomation {
+    fn get_root_ok(&self) -> Result<windows::Win32::UI::Accessibility::IUIAutomationElement, io::Error> {
+        unsafe { self.GetRootElement() }
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("Failed to get root element: {}", e)))
+    }
+
+    fn create_property_condition_ex_ok(
+        &self,
+        prop_id: UIA_PROPERTY_ID,
+        value: VARIANT,
+        flags: PropertyConditionFlags,
+    ) -> Result<windows::Win32::UI::Accessibility::IUIAutomationCondition, io::Error> {
+        unsafe { self.CreatePropertyConditionEx(prop_id, value, flags) }
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("Failed to create property condition: {}", e)))
+    }
 }
 
-// 安全封装：获取根元素
-fn uia_get_root(automation: &IUIAutomation) -> Result<windows::Win32::UI::Accessibility::IUIAutomationElement, io::Error> {
-    unsafe { automation.GetRootElement() }
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("Failed to get root element: {}", e)))
+trait UIAElementResultExt {
+    fn find_first_ok(
+        &self,
+        scope: windows::Win32::UI::Accessibility::TreeScope,
+        condition: &windows::Win32::UI::Accessibility::IUIAutomationCondition,
+    ) -> Result<windows::Win32::UI::Accessibility::IUIAutomationElement, io::Error>;
+
+    fn find_all_ok(
+        &self,
+        scope: windows::Win32::UI::Accessibility::TreeScope,
+        condition: &windows::Win32::UI::Accessibility::IUIAutomationCondition,
+    ) -> Result<windows::Win32::UI::Accessibility::IUIAutomationElementArray, io::Error>;
+
+    fn current_name_ok(&self) -> Result<BSTR, io::Error>;
 }
 
-// 安全封装：查找子元素
-fn uia_find_first(
-    element: &windows::Win32::UI::Accessibility::IUIAutomationElement,
-    scope: windows::Win32::UI::Accessibility::TreeScope,
-    condition: &windows::Win32::UI::Accessibility::IUIAutomationCondition,
-) -> Result<windows::Win32::UI::Accessibility::IUIAutomationElement, io::Error> {
-    unsafe { element.FindFirst(scope, condition) }
-        .map_err(|e| io::Error::new(io::ErrorKind::NotFound, format!("Failed to find first: {}", e)))
-}
+impl UIAElementResultExt for windows::Win32::UI::Accessibility::IUIAutomationElement {
+    fn find_first_ok(
+        &self,
+        scope: windows::Win32::UI::Accessibility::TreeScope,
+        condition: &windows::Win32::UI::Accessibility::IUIAutomationCondition,
+    ) -> Result<windows::Win32::UI::Accessibility::IUIAutomationElement, io::Error> {
+        unsafe { self.FindFirst(scope, condition) }
+            .map_err(|e| io::Error::new(io::ErrorKind::NotFound, format!("Failed to find first: {}", e)))
+    }
 
-// 安全封装：查找所有元素
-fn uia_find_all(
-    element: &windows::Win32::UI::Accessibility::IUIAutomationElement,
-    scope: windows::Win32::UI::Accessibility::TreeScope,
-    condition: &windows::Win32::UI::Accessibility::IUIAutomationCondition,
-) -> Result<windows::Win32::UI::Accessibility::IUIAutomationElementArray, io::Error> {
-    unsafe { element.FindAll(scope, condition) }
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("Failed to find all: {}", e)))
+    fn find_all_ok(
+        &self,
+        scope: windows::Win32::UI::Accessibility::TreeScope,
+        condition: &windows::Win32::UI::Accessibility::IUIAutomationCondition,
+    ) -> Result<windows::Win32::UI::Accessibility::IUIAutomationElementArray, io::Error> {
+        unsafe { self.FindAll(scope, condition) }
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("Failed to find all: {}", e)))
+    }
+
+    fn current_name_ok(&self) -> Result<BSTR, io::Error> {
+        unsafe { self.CurrentName() }
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("Failed to get CurrentName: {}", e)))
+    }
 }
 
 // 安全封装：数组长度
-fn uia_array_len(array: &windows::Win32::UI::Accessibility::IUIAutomationElementArray) -> u32 {
-    let len = unsafe { array.Length() }.unwrap_or(0);
-    if len < 0 { 0 } else { len as u32 }
+trait UIAElementArrayExt {
+    fn len_u32(&self) -> u32;
+    fn get_checked(
+        &self,
+        index: u32,
+    ) -> Result<windows::Win32::UI::Accessibility::IUIAutomationElement, io::Error>;
 }
 
-// 安全封装：获取数组元素
-fn uia_array_get(
-    array: &windows::Win32::UI::Accessibility::IUIAutomationElementArray,
-    index: u32,
-) -> Result<windows::Win32::UI::Accessibility::IUIAutomationElement, io::Error> {
-    let len = unsafe { array.Length() }.unwrap_or(0);
-    if index as i32 >= len {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            format!("Index {} out of bounds (len = {})", index, len),
-        ));
+impl UIAElementArrayExt for windows::Win32::UI::Accessibility::IUIAutomationElementArray {
+    fn len_u32(&self) -> u32 {
+        let len = unsafe { self.Length() }.unwrap_or(0);
+        if len < 0 { 0 } else { len as u32 }
     }
 
-    unsafe { array.GetElement(index as i32) }
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("Failed to get element {}: {}", index, e)))
+    fn get_checked(
+        &self,
+        index: u32,
+    ) -> Result<windows::Win32::UI::Accessibility::IUIAutomationElement, io::Error> {
+        let len = unsafe { self.Length() }.unwrap_or(0);
+        if index as i32 >= len {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("Index {} out of bounds (len = {})", index, len),
+            ));
+        }
+
+        unsafe { self.GetElement(index as i32) }
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("Failed to get element {}: {}", index, e)))
+    }
 }
 
-// 安全封装：获取元素当前名称
-fn uia_element_current_name(element: &windows::Win32::UI::Accessibility::IUIAutomationElement) -> Result<BSTR, io::Error> {
-    unsafe { element.CurrentName() }
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("Failed to get CurrentName: {}", e)))
-}
+
+
+
+
 
 fn variant_i4(i: i32) -> VARIANT {
     let mut v = VARIANT::default();
@@ -290,36 +323,38 @@ fn get_input_method_mspy_impl(
     taskbar_name: &str,
     ime_pattern: &str,
 ) -> Result<String, io::Error> {
-    // 创建 UI Automation 实例（封装）
-    let automation: IUIAutomation = uia_create()?;
+    // 创建 UI Automation 实例
+    let automation: IUIAutomation = unsafe { CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER) }
+        .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("Failed to create UIAutomation: {}", e)))?;
 
-    // 获取桌面元素（封装）
-    let desktop = uia_get_root(&automation)?;
+    // 获取桌面元素
+    let desktop = automation.get_root_ok()?;
 
     // 查找任务栏
     let taskbar_variant = variant_bstr(taskbar_name);
     
-    let taskbar_condition = uia_create_property_condition_ex(
-        &automation,
-        UIA_NamePropertyId,
-        taskbar_variant,
-        PropertyConditionFlags::default(),
-    )?;
+    let taskbar_condition = automation
+        .create_property_condition_ex_ok(
+            UIA_NamePropertyId,
+            taskbar_variant,
+            PropertyConditionFlags::default(),
+        )?;
 
-    let taskbar = uia_find_first(&desktop, TreeScope_Children, &taskbar_condition)
+    let taskbar = desktop
+        .find_first_ok(TreeScope_Children, &taskbar_condition)
         .map_err(|e| io::Error::new(io::ErrorKind::NotFound, format!("Failed to find taskbar '{}': {}", taskbar_name, e)))?;
 
     // 查找所有按钮
     let button_variant = variant_i4(UIA_ButtonControlTypeId.0 as i32);
     
-    let button_condition = uia_create_property_condition_ex(
-        &automation,
-        UIA_ControlTypePropertyId,
-        button_variant,
-        PropertyConditionFlags::default(),
-    )?;
+    let button_condition = automation
+        .create_property_condition_ex_ok(
+            UIA_ControlTypePropertyId,
+            button_variant,
+            PropertyConditionFlags::default(),
+        )?;
 
-    let buttons = uia_find_all(&taskbar, TreeScope_Descendants, &button_condition)?;
+    let buttons = taskbar.find_all_ok(TreeScope_Descendants, &button_condition)?;
 
     // 编译正则表达式
     let re = Regex::new(ime_pattern).map_err(|e| {
@@ -330,10 +365,10 @@ fn get_input_method_mspy_impl(
     })?;
 
     // 遍历按钮查找输入法指示器
-    let length = uia_array_len(&buttons);
+    let length = buttons.len_u32();
     for i in 0..length {
-        if let Ok(button) = uia_array_get(&buttons, i) {
-            if let Ok(name_bstr) = uia_element_current_name(&button) {
+        if let Ok(button) = buttons.get_checked(i) {
+            if let Ok(name_bstr) = button.current_name_ok() {
                 let name = name_bstr.to_string();
                 if let Some(caps) = re.captures(&name) {
                     if let Some(mode) = caps.get(1) {
@@ -343,11 +378,26 @@ fn get_input_method_mspy_impl(
             }
         }
     }
-
-    Err(io::Error::new(
-        io::ErrorKind::NotFound,
-        "Input method indicator not found in taskbar",
-    ))
+    // 使用 and_then 链式调用简化错误处理
+    (0..length)
+        .find_map(|i| {
+            buttons
+                .get_checked(i)
+                .and_then(|button| button.current_name_ok())
+                .ok()
+                .and_then(|name_bstr| {
+                    let name = name_bstr.to_string();
+                    re.captures(&name)
+                        .and_then(|caps| caps.get(1))
+                        .map(|mode| mode.as_str().to_string())
+                })
+        })
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::NotFound,
+                "Input method indicator not found in taskbar",
+            )
+        })
 }
 
 /// 切换输入法（UI Automation 模式）
