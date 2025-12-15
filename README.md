@@ -189,42 +189,6 @@ xkb-switch -s us
 }
 ```
 
-## 架构设计
-
-项目采用模块化设计，不同平台有不同的实现：
-
-```
-src/
-├── main.rs              # 主程序入口和命令行参数解析（使用 clap）
-└── platform/
-    ├── mod.rs           # 平台模块导出
-    ├── windows_impl.rs  # Windows 平台实现（使用 Windows API）
-    ├── macos_impl.rs    # macOS 平台实现（使用 Core Foundation/Carbon API）
-    └── linux_impl.rs    # Linux 平台提示信息
-```
-
-每个平台模块实现统一的接口：
-- `get_input_method() -> Result<String, io::Error>` - 获取当前输入法
-- `switch_input_method(im: &str) -> Result<(), io::Error>` - 切换输入法
-
-## 技术细节
-
-### Windows
-使用 Windows API 通过以下方式实现：
-- `GetForegroundWindow()` - 获取前台窗口
-- `GetWindowThreadProcessId()` - 获取窗口线程 ID
-- `GetKeyboardLayout()` - 获取键盘布局
-- `PostMessageW()` - 发送输入法切换消息
-
-### macOS
-使用 Carbon/HIToolbox 框架的 Text Input Source API：
-- `TISCopyCurrentKeyboardInputSource()` - 获取当前输入源
-- `TISCreateInputSourceList()` - 查找输入源
-- `TISSelectInputSource()` - 选择输入源
-
-### Linux
-Linux 的输入法框架多样化（ibus、fcitx、xkb-switch 等），建议直接使用系统工具。
-
 ## 开发
 
 ```bash
