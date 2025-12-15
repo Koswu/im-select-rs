@@ -1,0 +1,33 @@
+[package]
+name = "im-select-rs"
+version = "0.1.0"
+edition = "2021"
+authors = ["KosWu <koswu@outlook.com>"]
+description = "A command-line tool to switch input methods across different platforms"
+license = "MIT"
+
+[dependencies]
+clap = { version = "4.4", features = ["derive"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "0.52", features = [
+    "Win32_Foundation",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_UI_TextServices",
+    "Win32_UI_Accessibility",
+    "Win32_System_Com",
+    "Win32_System_Ole",
+    "Win32_System_Variant",
+    "Win32_UI_Input_KeyboardAndMouse",
+] }
+regex = "1.10"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+core-foundation = "0.9"
+core-graphics = "0.23"
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true
