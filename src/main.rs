@@ -15,6 +15,9 @@ struct Args {
     /// If not provided, the current input method will be displayed
     input_method: Option<String>,
 
+    #[arg(short, long, help = "Enable verbose output for debugging")]
+    verbose: bool,
+
     #[cfg(target_os = "windows")]
     #[arg(
         long,
@@ -23,7 +26,11 @@ struct Args {
     mspy: bool,
 
     #[cfg(target_os = "windows")]
-    #[arg(long, default_value = "任务栏", help = "Taskbar name for UI Automation")]
+    #[arg(
+        long,
+        default_value = "任务栏",
+        help = "Taskbar name for UI Automation"
+    )]
     taskbar: String,
 
     #[cfg(target_os = "windows")]
@@ -78,21 +85,24 @@ struct Args {
 fn main() {
     let args = Args::parse();
 
+    // Set verbose mode via environment variable for platform modules
+    if args.verbose {
+        std::env::set_var("IM_SELECT_VERBOSE", "1");
+    }
+
     #[cfg(target_os = "windows")]
     if args.mspy {
         // 使用 UI Automation 模式
         match args.input_method {
-            None => {
-                match platform::get_input_method_mspy(&args.taskbar, &args.ime_pattern) {
-                    Ok(im) => {
-                        println!("{}", im);
-                    }
-                    Err(e) => {
-                        eprintln!("Error getting input method: {}", e);
-                        process::exit(1);
-                    }
+            None => match platform::get_input_method_mspy(&args.taskbar, &args.ime_pattern) {
+                Ok(im) => {
+                    println!("{}", im);
                 }
-            }
+                Err(e) => {
+                    eprintln!("Error getting input method: {}", e);
+                    process::exit(1);
+                }
+            },
             Some(im) => {
                 match platform::switch_input_method_mspy(
                     &im,
@@ -120,17 +130,15 @@ fn main() {
     // 默认模式
     match args.input_method {
         // 没有参数：获取当前输入法
-        None => {
-            match platform::get_input_method() {
-                Ok(im) => {
-                    println!("{}", im);
-                }
-                Err(e) => {
-                    eprintln!("Error getting input method: {}", e);
-                    process::exit(1);
-                }
+        None => match platform::get_input_method() {
+            Ok(im) => {
+                println!("{}", im);
             }
-        }
+            Err(e) => {
+                eprintln!("Error getting input method: {}", e);
+                process::exit(1);
+            }
+        },
         // 有参数：切换到指定输入法
         Some(im) => {
             match platform::switch_input_method(&im) {
@@ -145,4 +153,3 @@ fn main() {
         }
     }
 }
-

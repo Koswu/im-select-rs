@@ -97,6 +97,35 @@ im-select-rs --mspy --taskbar "Taskbar" --ime-pattern "Input Mode\\s+(\\w+)" --s
 - `--ime-pattern` - 正则表达式用于匹配输入法状态（默认：`托盘输入指示器\s+(\w+)`）
 - `--switch-keys` - 切换输入法的按键组合（默认：shift）
 
+#### 调试模式（Verbose）
+
+当遇到"Input method indicator not found in taskbar"等错误时，可以使用 `-v` 或 `--verbose` 参数启用详细输出以便调试：
+
+```bash
+# 在 mspy 模式下启用 verbose 输出
+im-select-rs --mspy --verbose
+
+# 或使用短选项
+im-select-rs --mspy -v
+
+# 切换时也可以使用
+im-select-rs --mspy -v 英语模式
+```
+
+verbose 模式会输出以下调试信息：
+- 任务栏搜索参数（名称、正则表达式）
+- UI Automation 初始化状态
+- 找到的按钮数量
+- 每个按钮的名称
+- 正则表达式匹配结果
+- 切换过程中的验证状态
+
+这些信息可帮助诊断输入法切换问题，例如：
+- 确认任务栏名称是否正确
+- 查看实际的按钮名称以调整正则表达式
+- 了解切换过程是否正常执行
+
+
 ### macOS
 
 #### 获取当前输入法标识符

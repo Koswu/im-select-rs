@@ -17,7 +17,7 @@ extern "C" {
         property_key: CFStringRef,
     ) -> *const libc::c_void;
     fn TISSelectInputSource(source: *const libc::c_void) -> CGError;
-    
+
     static kTISPropertyInputSourceID: CFStringRef;
 }
 
@@ -34,7 +34,7 @@ extern "C" {
         key_callbacks: *const libc::c_void,
         value_callbacks: *const libc::c_void,
     ) -> *const libc::c_void;
-    
+
     static kCFTypeDictionaryKeyCallBacks: *const libc::c_void;
     static kCFTypeDictionaryValueCallBacks: *const libc::c_void;
 }
@@ -50,8 +50,7 @@ pub fn get_input_method() -> Result<String, io::Error> {
             ));
         }
 
-        let source_id_ref =
-            TISGetInputSourceProperty(current_source, kTISPropertyInputSourceID);
+        let source_id_ref = TISGetInputSourceProperty(current_source, kTISPropertyInputSourceID);
 
         if source_id_ref.is_null() {
             CFRelease(current_source);
@@ -74,11 +73,12 @@ pub fn get_input_method() -> Result<String, io::Error> {
 pub fn switch_input_method(input_source_id: &str) -> Result<(), io::Error> {
     unsafe {
         let source_id = CFString::new(input_source_id);
-        
+
         // 创建过滤字典
         let keys: [*const libc::c_void; 1] = [kTISPropertyInputSourceID as *const libc::c_void];
-        let values: [*const libc::c_void; 1] = [source_id.as_concrete_TypeRef() as *const libc::c_void];
-        
+        let values: [*const libc::c_void; 1] =
+            [source_id.as_concrete_TypeRef() as *const libc::c_void];
+
         let filter = CFDictionaryCreate(
             ptr::null(),
             keys.as_ptr(),
