@@ -41,18 +41,11 @@ struct Args {
     )]
     ime_pattern: String,
 
-    #[cfg(target_os = "windows")]
-    #[arg(
-        long,
-        default_value = "ctrl+space",
-        help = "Keys to switch IME (e.g., 'shift', 'ctrl+space')"
-    )]
-    switch_keys: String,
 
     #[cfg(target_os = "windows")]
     #[arg(
         long,
-        default_value_t = 5u32,
+        default_value_t = 3u32,
         help = "Verification attempts after sending switch keys"
     )]
     verify_attempts: u32,
@@ -76,7 +69,7 @@ struct Args {
     #[cfg(target_os = "windows")]
     #[arg(
         long,
-        default_value_t = 200u64,
+        default_value_t = 100u64,
         help = "Delay in ms before resending switch keys"
     )]
     resend_wait_ms: u64,
@@ -108,7 +101,6 @@ fn main() {
                     &im,
                     &args.taskbar,
                     &args.ime_pattern,
-                    &args.switch_keys,
                     args.verify_attempts,
                     args.verify_interval_ms,
                     args.resend_retries,

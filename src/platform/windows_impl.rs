@@ -219,7 +219,6 @@ pub fn switch_input_method_mspy(
     target_mode: &str,
     taskbar_name: &str,
     ime_pattern: &str,
-    switch_keys: &str,
     verify_attempts: u32,
     verify_interval_ms: u64,
     resend_retries: u32,
@@ -227,7 +226,6 @@ pub fn switch_input_method_mspy(
 ) -> Result<(), io::Error> {
     vlog!("Starting switch_input_method_mspy");
     vlog!("Target mode: '{}'", target_mode);
-    vlog!("Switch keys: '{}'", switch_keys);
     vlog!(
         "Verify attempts: {}, interval: {}ms",
         verify_attempts,
@@ -256,9 +254,8 @@ pub fn switch_input_method_mspy(
         target_mode
     );
 
-    // 发送切换按键，并按配置进行验证和可选的重发
-    let inputs = create_key_inputs(switch_keys)?;
-    vlog!("Created {} key inputs", inputs.len());
+    // 内置的切换按键列表，轮流尝试
+    let switch_keys_list = ["shift", "ctrl+space"];
 
     let verify = |target: &str| -> bool {
         // 初次短等待，避免立即读取旧状态
@@ -278,22 +275,28 @@ pub fn switch_input_method_mspy(
         false
     };
 
-    // 首次发送并验证
-    vlog!("Sending switch keys (first attempt)...");
-    send_virtual_inputs(&inputs)?;
-    if verify(target_mode) {
-        return Ok(());
-    }
+    // 尝试次数 = 1 (首次) + resend_retries
+    // 每次尝试轮换一个 key
+    let total_attempts = 1 + resend_retries;
 
-    // 可选重发策略
-    for retry in 0..resend_retries {
+    for i in 0..total_attempts {
+        let key_index = (i as usize) % switch_keys_list.len();
+        let current_keys = switch_keys_list[key_index];
+
         vlog!(
-            "Resending switch keys (retry {}/{})",
-            retry + 1,
-            resend_retries
+            "Attempt {}/{}: sending keys '{}'",
+            i + 1,
+            total_attempts,
+            current_keys
         );
-        std::thread::sleep(std::time::Duration::from_millis(resend_wait_ms));
+
+        if i > 0 {
+            std::thread::sleep(std::time::Duration::from_millis(resend_wait_ms));
+        }
+
+        let inputs = create_key_inputs(current_keys)?;
         send_virtual_inputs(&inputs)?;
+        
         if verify(target_mode) {
             return Ok(());
         }
