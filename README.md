@@ -89,13 +89,16 @@ im-select-rs --mspy 中文模式
 **自定义参数**：
 ```bash
 # 对于非简体中文系统，可能需要指定正确的任务栏名称和正则表达式
-im-select-rs --mspy --taskbar "Taskbar" --ime-pattern "Input Mode\\s+(\\w+)" --switch-keys "shift"
+im-select-rs --mspy --taskbar "Taskbar" --ime-pattern "(?:(?:托盘)?输入指示器|Input Indicator)\s+(\S+)"
 ```
 
 参数说明：
 - `--taskbar` - 任务栏窗口名称（默认：任务栏）
-- `--ime-pattern` - 正则表达式用于匹配输入法状态（默认：`托盘输入指示器\s+(\w+)`）
-- `--switch-keys` - 切换输入法的按键组合（默认：shift）
+- `--ime-pattern` - 正则表达式用于匹配输入法状态（默认：`(?:(?:托盘)?输入指示器|Input Indicator)\s+(\S+)`）
+- `--verify-attempts` - 发送切换按键后的验证次数（默认：3）
+- `--verify-interval-ms` - 验证尝试之间的延迟（毫秒）（默认：50）
+- `--resend-retries` - 验证失败后的重试次数（默认：1）
+- `--resend-wait-ms` - 重试前的等待延迟（毫秒）（默认：100）
 
 #### 调试模式（Verbose）
 
