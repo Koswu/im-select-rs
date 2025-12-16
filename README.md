@@ -192,7 +192,7 @@ xkb-switch -s us
 ```json
 {
   "vim.autoSwitchInputMethod.enable": true,
-  "vim.autoSwitchInputMethod.defaultIM": "英语模式",
+  "vim.autoSwitchInputMethod.defaultIM": "英",
   "vim.autoSwitchInputMethod.obtainIMCmd": "C:\\path\\to\\im-select-rs.exe --mspy",
   "vim.autoSwitchInputMethod.switchIMCmd": "C:\\path\\to\\im-select-rs.exe --mspy {im}"
 }

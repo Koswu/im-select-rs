@@ -1,27 +1,15 @@
-use regex::Regex;
 use std::io;
-use windows::core::BSTR;
-use windows::Win32::Foundation::{LPARAM, WPARAM};
-use windows::Win32::System::Com::{
-    CoCreateInstance, CoInitializeEx, CoUninitialize, CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED,
-};
-use windows::Win32::System::Variant::{VARENUM, VARIANT};
-use windows::Win32::UI::Accessibility::{
-    CUIAutomation, IUIAutomation, PropertyConditionFlags, TreeScope_Children,
-    TreeScope_Descendants, UIA_ButtonControlTypeId, UIA_ControlTypePropertyId, UIA_NamePropertyId,
-    UIA_PROPERTY_ID,
+use windows::Win32::UI::Input::Ime::ImmGetDefaultIMEWnd;
+use windows::Win32::Foundation::{LPARAM, WPARAM}; 
+use windows::Win32::UI::WindowsAndMessaging::{
+    GetForegroundWindow, GetWindowThreadProcessId, PostMessageW, SendMessageW, WM_INPUTLANGCHANGEREQUEST // 注意：这里不要放 HWND
 };
 
-// VARIANT 类型常量
-const VT_BSTR: VARENUM = VARENUM(8);
-const VT_I4: VARENUM = VARENUM(3);
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, VIRTUAL_KEY,
     VK_CONTROL, VK_MENU, VK_SHIFT, VK_SPACE,
 };
-use windows::Win32::UI::WindowsAndMessaging::{
-    GetForegroundWindow, GetWindowThreadProcessId, PostMessageW, WM_INPUTLANGCHANGEREQUEST,
-};
+
 
 // 简单的 verbose 日志宏
 macro_rules! vlog {
@@ -42,180 +30,7 @@ extern "system" {
     fn GetKeyboardLayout(idthread: u32) -> HKL;
 }
 
-// RAII 封装 COM 初始化/反初始化，减少分散的 unsafe
-struct ComInit;
 
-impl ComInit {
-    fn new() -> Result<Self, io::Error> {
-        unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) }.map_err(|e| {
-            io::Error::new(
-                io::ErrorKind::Other,
-                format!("Failed to initialize COM: {}", e),
-            )
-        })?;
-        Ok(ComInit)
-    }
-}
-
-impl Drop for ComInit {
-    fn drop(&mut self) {
-        unsafe { CoUninitialize() };
-    }
-}
-
-// 安全封装：构造包含 BSTR 的 VARIANT
-fn variant_bstr(s: &str) -> VARIANT {
-    let bstr = BSTR::from(s);
-    let mut v = VARIANT::default();
-    unsafe {
-        let p_var = &mut *v.Anonymous.Anonymous;
-        p_var.vt = VT_BSTR;
-        std::ptr::write(
-            &mut p_var.Anonymous.bstrVal as *mut _,
-            std::mem::ManuallyDrop::new(bstr),
-        );
-    }
-    v
-}
-
-// UIA 扩展：为 IUIAutomation 与 IUIAutomationElement 提供 Result 化的方法风格封装
-trait UIAutomationResultExt {
-    fn get_root_ok(
-        &self,
-    ) -> Result<windows::Win32::UI::Accessibility::IUIAutomationElement, io::Error>;
-    fn create_property_condition_ex_ok(
-        &self,
-        prop_id: UIA_PROPERTY_ID,
-        value: VARIANT,
-        flags: PropertyConditionFlags,
-    ) -> Result<windows::Win32::UI::Accessibility::IUIAutomationCondition, io::Error>;
-}
-
-impl UIAutomationResultExt for IUIAutomation {
-    fn get_root_ok(
-        &self,
-    ) -> Result<windows::Win32::UI::Accessibility::IUIAutomationElement, io::Error> {
-        unsafe { self.GetRootElement() }.map_err(|e| {
-            io::Error::new(
-                io::ErrorKind::Other,
-                format!("Failed to get root element: {}", e),
-            )
-        })
-    }
-
-    fn create_property_condition_ex_ok(
-        &self,
-        prop_id: UIA_PROPERTY_ID,
-        value: VARIANT,
-        flags: PropertyConditionFlags,
-    ) -> Result<windows::Win32::UI::Accessibility::IUIAutomationCondition, io::Error> {
-        unsafe { self.CreatePropertyConditionEx(prop_id, value, flags) }.map_err(|e| {
-            io::Error::new(
-                io::ErrorKind::Other,
-                format!("Failed to create property condition: {}", e),
-            )
-        })
-    }
-}
-
-trait UIAElementResultExt {
-    fn find_first_ok(
-        &self,
-        scope: windows::Win32::UI::Accessibility::TreeScope,
-        condition: &windows::Win32::UI::Accessibility::IUIAutomationCondition,
-    ) -> Result<windows::Win32::UI::Accessibility::IUIAutomationElement, io::Error>;
-
-    fn find_all_ok(
-        &self,
-        scope: windows::Win32::UI::Accessibility::TreeScope,
-        condition: &windows::Win32::UI::Accessibility::IUIAutomationCondition,
-    ) -> Result<windows::Win32::UI::Accessibility::IUIAutomationElementArray, io::Error>;
-
-    fn current_name_ok(&self) -> Result<BSTR, io::Error>;
-}
-
-impl UIAElementResultExt for windows::Win32::UI::Accessibility::IUIAutomationElement {
-    fn find_first_ok(
-        &self,
-        scope: windows::Win32::UI::Accessibility::TreeScope,
-        condition: &windows::Win32::UI::Accessibility::IUIAutomationCondition,
-    ) -> Result<windows::Win32::UI::Accessibility::IUIAutomationElement, io::Error> {
-        unsafe { self.FindFirst(scope, condition) }.map_err(|e| {
-            io::Error::new(
-                io::ErrorKind::NotFound,
-                format!("Failed to find first: {}", e),
-            )
-        })
-    }
-
-    fn find_all_ok(
-        &self,
-        scope: windows::Win32::UI::Accessibility::TreeScope,
-        condition: &windows::Win32::UI::Accessibility::IUIAutomationCondition,
-    ) -> Result<windows::Win32::UI::Accessibility::IUIAutomationElementArray, io::Error> {
-        unsafe { self.FindAll(scope, condition) }
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("Failed to find all: {}", e)))
-    }
-
-    fn current_name_ok(&self) -> Result<BSTR, io::Error> {
-        unsafe { self.CurrentName() }.map_err(|e| {
-            io::Error::new(
-                io::ErrorKind::Other,
-                format!("Failed to get CurrentName: {}", e),
-            )
-        })
-    }
-}
-
-// 安全封装：数组长度
-trait UIAElementArrayExt {
-    fn len_u32(&self) -> u32;
-    fn get_checked(
-        &self,
-        index: u32,
-    ) -> Result<windows::Win32::UI::Accessibility::IUIAutomationElement, io::Error>;
-}
-
-impl UIAElementArrayExt for windows::Win32::UI::Accessibility::IUIAutomationElementArray {
-    fn len_u32(&self) -> u32 {
-        let len = unsafe { self.Length() }.unwrap_or(0);
-        if len < 0 {
-            0
-        } else {
-            len as u32
-        }
-    }
-
-    fn get_checked(
-        &self,
-        index: u32,
-    ) -> Result<windows::Win32::UI::Accessibility::IUIAutomationElement, io::Error> {
-        let len = unsafe { self.Length() }.unwrap_or(0);
-        if index as i32 >= len {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                format!("Index {} out of bounds (len = {})", index, len),
-            ));
-        }
-
-        unsafe { self.GetElement(index as i32) }.map_err(|e| {
-            io::Error::new(
-                io::ErrorKind::Other,
-                format!("Failed to get element {}: {}", index, e),
-            )
-        })
-    }
-}
-
-fn variant_i4(i: i32) -> VARIANT {
-    let mut v = VARIANT::default();
-    unsafe {
-        let p_var = &mut *v.Anonymous.Anonymous;
-        p_var.vt = VT_I4;
-        std::ptr::write(&mut p_var.Anonymous.lVal as *mut _, i);
-    }
-    v
-}
 
 // 安全封装：发送虚拟输入，集中 SendInput 的 unsafe
 fn send_virtual_inputs(inputs: &[INPUT]) -> Result<(), io::Error> {
@@ -348,100 +163,55 @@ fn create_key_inputs(keys_str: &str) -> Result<Vec<INPUT>, io::Error> {
 
 /// 获取当前输入法状态（UI Automation 模式，用于微软拼音等）
 pub fn get_input_method_mspy(taskbar_name: &str, ime_pattern: &str) -> Result<String, io::Error> {
-    let _com = ComInit::new()?;
     get_input_method_mspy_impl(taskbar_name, ime_pattern)
 }
 
-fn get_input_method_mspy_impl(taskbar_name: &str, ime_pattern: &str) -> Result<String, io::Error> {
-    vlog!("Starting get_input_method_mspy_impl");
-    vlog!("Taskbar name: '{}'", taskbar_name);
-    vlog!("IME pattern: '{}'", ime_pattern);
+fn get_input_method_mspy_impl(_taskbar_name: &str, _ime_pattern: &str) -> Result<String, io::Error> {
+    unsafe {
+        // 1. 获取当前活动窗口
+        // 如果当前没有窗口（比如刚开机），可能会失败，返回错误即可
+        let hwnd = GetForegroundWindow();
+        if hwnd.0 == 0 {
+            return Err(io::Error::new(io::ErrorKind::Other, "No foreground window"));
+        }
 
-    // 创建 UI Automation 实例
-    vlog!("Creating UI Automation instance...");
-    let automation: IUIAutomation =
-        unsafe { CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER) }.map_err(|e| {
-            io::Error::new(
-                io::ErrorKind::Other,
-                format!("Failed to create UIAutomation: {}", e),
-            )
-        })?;
-    vlog!("UI Automation instance created successfully");
+        // 2. 获取该窗口对应的默认 IME 窗口句柄
+        // 这是一个隐藏的系统窗口，专门用来接收输入法控制消息
+        let ime_hwnd = ImmGetDefaultIMEWnd(hwnd);
+        if ime_hwnd.0 == 0 {
+            // 如果拿不到 IME 窗口，通常意味着当前环境不支持 IME（比如纯英文环境/CMD核心模式）
+            // 这种情况下，安全的做法是认为它是英文 (1033)
+            return Ok("1033".to_string());
+        }
 
-    // 获取桌面元素
-    vlog!("Getting desktop element...");
-    let desktop = automation.get_root_ok()?;
-    vlog!("Desktop element obtained");
+        // 3. 发送消息询问状态
+        // WM_IME_CONTROL = 0x0283
+        // IMC_GETCONVERSIONMODE = 0x001
+        const WM_IME_CONTROL: u32 = 0x0283;
+        const IMC_GETCONVERSIONMODE: u32 = 0x0001;
+        
+        let conversion_mode = SendMessageW(
+            ime_hwnd,
+            WM_IME_CONTROL,
+            WPARAM(IMC_GETCONVERSIONMODE as usize), 
+            LPARAM(0)
+        );
 
-    // 查找任务栏
-    vlog!("Searching for taskbar with name: '{}'", taskbar_name);
-    let taskbar_variant = variant_bstr(taskbar_name);
+        // 4. 解析结果
+        // SendMessageW 返回的是 LRESULT (isize)
+        // IME_CMODE_NATIVE (0x0001) 位如果是 1，表示是“本地语言模式”（即中文）
+        const IME_CMODE_NATIVE: u32 = 0x0001;
+        let mode = conversion_mode.0 as u32;
+        let is_chinese = (mode & IME_CMODE_NATIVE) != 0;
 
-    let taskbar_condition = automation.create_property_condition_ex_ok(
-        UIA_NamePropertyId,
-        taskbar_variant,
-        PropertyConditionFlags::default(),
-    )?;
-
-    let taskbar = desktop
-        .find_first_ok(TreeScope_Children, &taskbar_condition)
-        .map_err(|e| {
-            vlog!("Failed to find taskbar: {}", e);
-            io::Error::new(
-                io::ErrorKind::NotFound,
-                format!("Failed to find taskbar '{}': {}", taskbar_name, e),
-            )
-        })?;
-    vlog!("Taskbar found successfully");
-
-    // 查找所有按钮
-    vlog!("Searching for buttons in taskbar...");
-    let button_variant = variant_i4(UIA_ButtonControlTypeId.0 as i32);
-
-    let button_condition = automation.create_property_condition_ex_ok(
-        UIA_ControlTypePropertyId,
-        button_variant,
-        PropertyConditionFlags::default(),
-    )?;
-
-    let buttons = taskbar.find_all_ok(TreeScope_Descendants, &button_condition)?;
-    let length = buttons.len_u32();
-    vlog!("Found {} buttons in taskbar", length);
-
-    // 编译正则表达式
-    vlog!("Compiling regex pattern...");
-    let re = Regex::new(ime_pattern).map_err(|e| {
-        vlog!("Failed to compile regex: {}", e);
-        io::Error::new(
-            io::ErrorKind::InvalidInput,
-            format!("Invalid regex pattern: {}", e),
-        )
-    })?;
-    vlog!("Regex compiled successfully");
-
-    // 遍历按钮查找输入法指示器
-    vlog!("Scanning {} buttons for input method indicator...", length);
-    for i in 0..length {
-        if let Ok(button) = buttons.get_checked(i) {
-            if let Ok(name_bstr) = button.current_name_ok() {
-                let name = name_bstr.to_string();
-                vlog!("Button {}: '{}'", i, name);
-                if let Some(caps) = re.captures(&name) {
-                    if let Some(mode) = caps.get(1) {
-                        let result = mode.as_str().to_string();
-                        vlog!("Matched input method indicator: '{}'", result);
-                        return Ok(result);
-                    }
-                }
-            }
+        if is_chinese {
+            // 返回中文 Locale ID (微软拼音中文模式)
+            Ok("中".to_string())
+        } else {
+            // 返回英文 Locale ID (微软拼音英文模式/纯英文)
+            Ok("英".to_string())
         }
     }
-    
-    vlog!("No input method indicator found in any button");
-    Err(io::Error::new(
-        io::ErrorKind::NotFound,
-        "Input method indicator not found in taskbar",
-    ))
 }
 
 /// 切换输入法（UI Automation 模式）
