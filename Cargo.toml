@@ -1,6 +1,6 @@
 [package]
 name = "im-select-rs"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 authors = ["KosWu <koswu@outlook.com>"]
 description = "A command-line tool to switch input methods across different platforms"
