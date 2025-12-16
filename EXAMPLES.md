@@ -129,6 +129,41 @@ TotalMilliseconds : 5.2341
 
 ## 故障排除
 
+### Windows: "Input method indicator not found in taskbar"
+
+这个错误通常发生在 mspy 模式下，表示无法在任务栏找到输入法指示器。诊断方法：
+
+1. **使用 verbose 模式查看详细信息**：
+```powershell
+PS> .\im-select-rs.exe --mspy --verbose
+[VERBOSE] Starting get_input_method_mspy_impl
+[VERBOSE] Taskbar name: '任务栏'
+[VERBOSE] IME pattern: '(?:(?:托盘)?输入指示器|Input Indicator)\s+(\S+)'
+[VERBOSE] Creating UI Automation instance...
+[VERBOSE] UI Automation instance created successfully
+[VERBOSE] Getting desktop element...
+[VERBOSE] Desktop element obtained
+[VERBOSE] Searching for taskbar with name: '任务栏'
+[VERBOSE] Taskbar found successfully
+[VERBOSE] Searching for buttons in taskbar...
+[VERBOSE] Found 15 buttons in taskbar
+[VERBOSE] Scanning 15 buttons for input method indicator...
+[VERBOSE] Button 0: '用户推广的通知区域，右键单击以访问上下文菜单'
+[VERBOSE] Button 1: '显示隐藏的图标'
+[VERBOSE] Button 2: '中文(简体，中国) 中文模式'
+[VERBOSE] Matched input method indicator: '中文模式'
+中文模式
+```
+
+2. **根据 verbose 输出调整参数**：
+   - 如果任务栏名称不正确，使用 `--taskbar` 参数指定正确的名称
+   - 如果按钮中找到了输入法指示器但正则表达式不匹配，使用 `--ime-pattern` 调整正则表达式
+
+3. **示例：针对英文系统**：
+```powershell
+PS> .\im-select-rs.exe --mspy --taskbar "Taskbar" --ime-pattern "Input Indicator\\s+(\\S+)" -v
+```
+
 ### Windows: "Failed to get foreground window"
 
 这个错误通常发生在没有活动窗口的情况下。确保：

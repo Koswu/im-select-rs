@@ -8,20 +8,29 @@ use windows::Win32::System::Com::{
 use windows::Win32::System::Variant::{VARENUM, VARIANT};
 use windows::Win32::UI::Accessibility::{
     CUIAutomation, IUIAutomation, PropertyConditionFlags, TreeScope_Children,
-    TreeScope_Descendants, UIA_ButtonControlTypeId, UIA_ControlTypePropertyId,
-    UIA_NamePropertyId, UIA_PROPERTY_ID,
+    TreeScope_Descendants, UIA_ButtonControlTypeId, UIA_ControlTypePropertyId, UIA_NamePropertyId,
+    UIA_PROPERTY_ID,
 };
 
 // VARIANT 类型常量
 const VT_BSTR: VARENUM = VARENUM(8);
 const VT_I4: VARENUM = VARENUM(3);
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, VK_CONTROL, VK_MENU,
-    VK_SHIFT, VK_SPACE, VIRTUAL_KEY,
+    SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, VIRTUAL_KEY,
+    VK_CONTROL, VK_MENU, VK_SHIFT, VK_SPACE,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     GetForegroundWindow, GetWindowThreadProcessId, PostMessageW, WM_INPUTLANGCHANGEREQUEST,
 };
+
+// 简单的 verbose 日志宏
+macro_rules! vlog {
+    ($($arg:tt)*) => {
+        if std::env::var("IM_SELECT_VERBOSE").is_ok() {
+            eprintln!("[VERBOSE] {}", format!($($arg)*));
+        }
+    };
+}
 
 // HKL 类型定义（键盘布局句柄）
 #[repr(transparent)]
@@ -38,8 +47,12 @@ struct ComInit;
 
 impl ComInit {
     fn new() -> Result<Self, io::Error> {
-        unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) }
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("Failed to initialize COM: {}", e)))?;
+        unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) }.map_err(|e| {
+            io::Error::new(
+                io::ErrorKind::Other,
+                format!("Failed to initialize COM: {}", e),
+            )
+        })?;
         Ok(ComInit)
     }
 }
@@ -67,7 +80,9 @@ fn variant_bstr(s: &str) -> VARIANT {
 
 // UIA 扩展：为 IUIAutomation 与 IUIAutomationElement 提供 Result 化的方法风格封装
 trait UIAutomationResultExt {
-    fn get_root_ok(&self) -> Result<windows::Win32::UI::Accessibility::IUIAutomationElement, io::Error>;
+    fn get_root_ok(
+        &self,
+    ) -> Result<windows::Win32::UI::Accessibility::IUIAutomationElement, io::Error>;
     fn create_property_condition_ex_ok(
         &self,
         prop_id: UIA_PROPERTY_ID,
@@ -77,9 +92,15 @@ trait UIAutomationResultExt {
 }
 
 impl UIAutomationResultExt for IUIAutomation {
-    fn get_root_ok(&self) -> Result<windows::Win32::UI::Accessibility::IUIAutomationElement, io::Error> {
-        unsafe { self.GetRootElement() }
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("Failed to get root element: {}", e)))
+    fn get_root_ok(
+        &self,
+    ) -> Result<windows::Win32::UI::Accessibility::IUIAutomationElement, io::Error> {
+        unsafe { self.GetRootElement() }.map_err(|e| {
+            io::Error::new(
+                io::ErrorKind::Other,
+                format!("Failed to get root element: {}", e),
+            )
+        })
     }
 
     fn create_property_condition_ex_ok(
@@ -88,8 +109,12 @@ impl UIAutomationResultExt for IUIAutomation {
         value: VARIANT,
         flags: PropertyConditionFlags,
     ) -> Result<windows::Win32::UI::Accessibility::IUIAutomationCondition, io::Error> {
-        unsafe { self.CreatePropertyConditionEx(prop_id, value, flags) }
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("Failed to create property condition: {}", e)))
+        unsafe { self.CreatePropertyConditionEx(prop_id, value, flags) }.map_err(|e| {
+            io::Error::new(
+                io::ErrorKind::Other,
+                format!("Failed to create property condition: {}", e),
+            )
+        })
     }
 }
 
@@ -115,8 +140,12 @@ impl UIAElementResultExt for windows::Win32::UI::Accessibility::IUIAutomationEle
         scope: windows::Win32::UI::Accessibility::TreeScope,
         condition: &windows::Win32::UI::Accessibility::IUIAutomationCondition,
     ) -> Result<windows::Win32::UI::Accessibility::IUIAutomationElement, io::Error> {
-        unsafe { self.FindFirst(scope, condition) }
-            .map_err(|e| io::Error::new(io::ErrorKind::NotFound, format!("Failed to find first: {}", e)))
+        unsafe { self.FindFirst(scope, condition) }.map_err(|e| {
+            io::Error::new(
+                io::ErrorKind::NotFound,
+                format!("Failed to find first: {}", e),
+            )
+        })
     }
 
     fn find_all_ok(
@@ -129,8 +158,12 @@ impl UIAElementResultExt for windows::Win32::UI::Accessibility::IUIAutomationEle
     }
 
     fn current_name_ok(&self) -> Result<BSTR, io::Error> {
-        unsafe { self.CurrentName() }
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("Failed to get CurrentName: {}", e)))
+        unsafe { self.CurrentName() }.map_err(|e| {
+            io::Error::new(
+                io::ErrorKind::Other,
+                format!("Failed to get CurrentName: {}", e),
+            )
+        })
     }
 }
 
@@ -146,7 +179,11 @@ trait UIAElementArrayExt {
 impl UIAElementArrayExt for windows::Win32::UI::Accessibility::IUIAutomationElementArray {
     fn len_u32(&self) -> u32 {
         let len = unsafe { self.Length() }.unwrap_or(0);
-        if len < 0 { 0 } else { len as u32 }
+        if len < 0 {
+            0
+        } else {
+            len as u32
+        }
     }
 
     fn get_checked(
@@ -161,15 +198,14 @@ impl UIAElementArrayExt for windows::Win32::UI::Accessibility::IUIAutomationElem
             ));
         }
 
-        unsafe { self.GetElement(index as i32) }
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("Failed to get element {}: {}", index, e)))
+        unsafe { self.GetElement(index as i32) }.map_err(|e| {
+            io::Error::new(
+                io::ErrorKind::Other,
+                format!("Failed to get element {}: {}", index, e),
+            )
+        })
     }
 }
-
-
-
-
-
 
 fn variant_i4(i: i32) -> VARIANT {
     let mut v = VARIANT::default();
@@ -272,10 +308,7 @@ fn create_key_inputs(keys_str: &str) -> Result<Vec<INPUT>, io::Error> {
     // 按下所有键
     for key in &keys {
         let vk = parse_key(key.trim()).ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::InvalidInput,
-                format!("Invalid key: {}", key),
-            )
+            io::Error::new(io::ErrorKind::InvalidInput, format!("Invalid key: {}", key))
         })?;
 
         inputs.push(INPUT {
@@ -319,65 +352,91 @@ pub fn get_input_method_mspy(taskbar_name: &str, ime_pattern: &str) -> Result<St
     get_input_method_mspy_impl(taskbar_name, ime_pattern)
 }
 
-fn get_input_method_mspy_impl(
-    taskbar_name: &str,
-    ime_pattern: &str,
-) -> Result<String, io::Error> {
+fn get_input_method_mspy_impl(taskbar_name: &str, ime_pattern: &str) -> Result<String, io::Error> {
+    vlog!("Starting get_input_method_mspy_impl");
+    vlog!("Taskbar name: '{}'", taskbar_name);
+    vlog!("IME pattern: '{}'", ime_pattern);
+
     // 创建 UI Automation 实例
-    let automation: IUIAutomation = unsafe { CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER) }
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("Failed to create UIAutomation: {}", e)))?;
+    vlog!("Creating UI Automation instance...");
+    let automation: IUIAutomation =
+        unsafe { CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER) }.map_err(|e| {
+            io::Error::new(
+                io::ErrorKind::Other,
+                format!("Failed to create UIAutomation: {}", e),
+            )
+        })?;
+    vlog!("UI Automation instance created successfully");
 
     // 获取桌面元素
+    vlog!("Getting desktop element...");
     let desktop = automation.get_root_ok()?;
+    vlog!("Desktop element obtained");
 
     // 查找任务栏
+    vlog!("Searching for taskbar with name: '{}'", taskbar_name);
     let taskbar_variant = variant_bstr(taskbar_name);
-    
-    let taskbar_condition = automation
-        .create_property_condition_ex_ok(
-            UIA_NamePropertyId,
-            taskbar_variant,
-            PropertyConditionFlags::default(),
-        )?;
+
+    let taskbar_condition = automation.create_property_condition_ex_ok(
+        UIA_NamePropertyId,
+        taskbar_variant,
+        PropertyConditionFlags::default(),
+    )?;
 
     let taskbar = desktop
         .find_first_ok(TreeScope_Children, &taskbar_condition)
-        .map_err(|e| io::Error::new(io::ErrorKind::NotFound, format!("Failed to find taskbar '{}': {}", taskbar_name, e)))?;
+        .map_err(|e| {
+            vlog!("Failed to find taskbar: {}", e);
+            io::Error::new(
+                io::ErrorKind::NotFound,
+                format!("Failed to find taskbar '{}': {}", taskbar_name, e),
+            )
+        })?;
+    vlog!("Taskbar found successfully");
 
     // 查找所有按钮
+    vlog!("Searching for buttons in taskbar...");
     let button_variant = variant_i4(UIA_ButtonControlTypeId.0 as i32);
-    
-    let button_condition = automation
-        .create_property_condition_ex_ok(
-            UIA_ControlTypePropertyId,
-            button_variant,
-            PropertyConditionFlags::default(),
-        )?;
+
+    let button_condition = automation.create_property_condition_ex_ok(
+        UIA_ControlTypePropertyId,
+        button_variant,
+        PropertyConditionFlags::default(),
+    )?;
 
     let buttons = taskbar.find_all_ok(TreeScope_Descendants, &button_condition)?;
+    let length = buttons.len_u32();
+    vlog!("Found {} buttons in taskbar", length);
 
     // 编译正则表达式
+    vlog!("Compiling regex pattern...");
     let re = Regex::new(ime_pattern).map_err(|e| {
+        vlog!("Failed to compile regex: {}", e);
         io::Error::new(
             io::ErrorKind::InvalidInput,
             format!("Invalid regex pattern: {}", e),
         )
     })?;
+    vlog!("Regex compiled successfully");
 
     // 遍历按钮查找输入法指示器
-    let length = buttons.len_u32();
+    vlog!("Scanning {} buttons for input method indicator...", length);
     for i in 0..length {
         if let Ok(button) = buttons.get_checked(i) {
             if let Ok(name_bstr) = button.current_name_ok() {
                 let name = name_bstr.to_string();
+                vlog!("Button {}: '{}'", i, name);
                 if let Some(caps) = re.captures(&name) {
                     if let Some(mode) = caps.get(1) {
-                        return Ok(mode.as_str().to_string());
+                        let result = mode.as_str().to_string();
+                        vlog!("Matched input method indicator: '{}'", result);
+                        return Ok(result);
                     }
                 }
             }
         }
     }
+    vlog!("No input method indicator found in any button");
     // 使用 and_then 链式调用简化错误处理
     (0..length)
         .find_map(|i| {
@@ -411,39 +470,73 @@ pub fn switch_input_method_mspy(
     resend_retries: u32,
     resend_wait_ms: u64,
 ) -> Result<(), io::Error> {
+    vlog!("Starting switch_input_method_mspy");
+    vlog!("Target mode: '{}'", target_mode);
+    vlog!("Switch keys: '{}'", switch_keys);
+    vlog!(
+        "Verify attempts: {}, interval: {}ms",
+        verify_attempts,
+        verify_interval_ms
+    );
+    vlog!(
+        "Resend retries: {}, wait: {}ms",
+        resend_retries,
+        resend_wait_ms
+    );
+
     // 先获取当前模式
+    vlog!("Getting current input method mode...");
     let current_mode = get_input_method_mspy(taskbar_name, ime_pattern)?;
+    vlog!("Current mode: '{}'", current_mode);
 
     // 如果已经是目标模式，不需要切换
     if current_mode == target_mode {
+        vlog!("Already in target mode, no switch needed");
         return Ok(());
     }
 
+    vlog!(
+        "Need to switch from '{}' to '{}'",
+        current_mode,
+        target_mode
+    );
+
     // 发送切换按键，并按配置进行验证和可选的重发
     let inputs = create_key_inputs(switch_keys)?;
+    vlog!("Created {} key inputs", inputs.len());
 
     let verify = |target: &str| -> bool {
         // 初次短等待，避免立即读取旧状态
         std::thread::sleep(std::time::Duration::from_millis(100));
-        for _ in 0..verify_attempts {
+        for attempt in 0..verify_attempts {
             std::thread::sleep(std::time::Duration::from_millis(verify_interval_ms));
+            vlog!("Verification attempt {}/{}", attempt + 1, verify_attempts);
             if let Ok(new_mode) = get_input_method_mspy(taskbar_name, ime_pattern) {
+                vlog!("Current mode during verification: '{}'", new_mode);
                 if new_mode == target {
+                    vlog!("Verification successful!");
                     return true;
                 }
             }
         }
+        vlog!("Verification failed after {} attempts", verify_attempts);
         false
     };
 
     // 首次发送并验证
+    vlog!("Sending switch keys (first attempt)...");
     send_virtual_inputs(&inputs)?;
     if verify(target_mode) {
         return Ok(());
     }
 
     // 可选重发策略
-    for _ in 0..resend_retries {
+    for retry in 0..resend_retries {
+        vlog!(
+            "Resending switch keys (retry {}/{})",
+            retry + 1,
+            resend_retries
+        );
         std::thread::sleep(std::time::Duration::from_millis(resend_wait_ms));
         send_virtual_inputs(&inputs)?;
         if verify(target_mode) {
@@ -451,6 +544,7 @@ pub fn switch_input_method_mspy(
         }
     }
 
+    vlog!("Failed to switch input method after all retries");
     Err(io::Error::new(
         io::ErrorKind::Other,
         "Verification failed after sending input",
