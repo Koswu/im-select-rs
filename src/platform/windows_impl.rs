@@ -27,7 +27,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 macro_rules! vlog {
     ($($arg:tt)*) => {
         if std::env::var("IM_SELECT_VERBOSE").is_ok() {
-            eprintln!("[VERBOSE] {}", format!($($arg)*));
+            eprintln!("[VERBOSE] {}", format_args!($($arg)*));
         }
     };
 }
@@ -436,27 +436,12 @@ fn get_input_method_mspy_impl(taskbar_name: &str, ime_pattern: &str) -> Result<S
             }
         }
     }
+    
     vlog!("No input method indicator found in any button");
-    // 使用 and_then 链式调用简化错误处理
-    (0..length)
-        .find_map(|i| {
-            buttons
-                .get_checked(i)
-                .and_then(|button| button.current_name_ok())
-                .ok()
-                .and_then(|name_bstr| {
-                    let name = name_bstr.to_string();
-                    re.captures(&name)
-                        .and_then(|caps| caps.get(1))
-                        .map(|mode| mode.as_str().to_string())
-                })
-        })
-        .ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::NotFound,
-                "Input method indicator not found in taskbar",
-            )
-        })
+    Err(io::Error::new(
+        io::ErrorKind::NotFound,
+        "Input method indicator not found in taskbar",
+    ))
 }
 
 /// 切换输入法（UI Automation 模式）
